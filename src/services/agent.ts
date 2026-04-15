@@ -10,7 +10,7 @@ const openrouter = createOpenAI({
   apiKey: config.openrouterApiKey,
 });
 
-const MODEL = "google/gemini-2.5-flash";
+const MODEL = "google/gemini-3.1-flash-lite-preview";
 const MAX_STEPS = 6;
 
 function buildContactContext(contact: Contact | null): string {
