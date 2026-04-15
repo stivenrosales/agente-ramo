@@ -5,7 +5,7 @@ import { handleWebhook } from "./handlers/webhook.js";
 
 const app = new Hono();
 
-app.get("/", (c) => c.json({ status: "ok", service: "agente-chatwoot" }));
+app.get("/", (c) => c.json({ status: "ok", service: "agente-ramo" }));
 
 // Chatwoot webhook endpoint — configure this URL in:
 // Chatwoot → Settings → Integrations → Webhooks → Add new webhook
@@ -21,6 +21,6 @@ app.onError((err, c) => {
 
 serve({ fetch: app.fetch, port: config.port }, (info) => {
   console.log(
-    `🚀 agente-chatwoot listening on http://localhost:${info.port} [${config.nodeEnv}]`,
+    `🚀 agente-ramo listening on http://localhost:${info.port} [${config.nodeEnv}]`,
   );
 });

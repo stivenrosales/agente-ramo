@@ -1,45 +1,25 @@
 import { tool } from "ai";
 import { z } from "zod";
-import { config, SUCURSAL_LIST, type Sucursal } from "../config.js";
-import { createCalendarEvent } from "./google-calendar.js";
+import { config } from "../config.js";
 import { database } from "./database.js";
+import { outlookCalendar } from "./outlook-calendar.js";
 
 const EMAIL_TYPOS: Record<string, string> = {
   "gamil.com": "gmail.com",
   "gmial.com": "gmail.com",
   "gmai.com": "gmail.com",
   "gmail.con": "gmail.com",
-  "gmal.com": "gmail.com",
-  "gnail.com": "gmail.com",
   "hotmal.com": "hotmail.com",
-  "hotmial.com": "hotmail.com",
   "hotmail.con": "hotmail.com",
-  "hotmai.com": "hotmail.com",
-  "hotamil.com": "hotmail.com",
   "outlok.com": "outlook.com",
-  "outloo.com": "outlook.com",
   "outlook.con": "outlook.com",
-  "outlool.com": "outlook.com",
-  "yaho.com": "yahoo.com",
-  "yahooo.com": "yahoo.com",
   "yahoo.con": "yahoo.com",
-  "tahoo.com": "yahoo.com",
 };
-
-function splitName(fullName: string) {
-  const parts = fullName.trim().split(/\s+/);
-  if (parts.length === 1) return { nombre: parts[0], paterno: "", materno: "" };
-  if (parts.length === 2)
-    return { nombre: parts[0], paterno: parts[1], materno: "" };
-  const materno = parts.pop()!;
-  const paterno = parts.pop()!;
-  return { nombre: parts.join(" "), paterno, materno };
-}
 
 function validateEmail(email: string): { valid: boolean; error?: string } {
   const lower = email.toLowerCase().trim();
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(lower)) {
-    return { valid: false, error: "Formato de correo inválido" };
+    return { valid: false, error: "El formato del correo no es válido." };
   }
   const domain = lower.split("@")[1];
   if (EMAIL_TYPOS[domain]) {
@@ -51,151 +31,272 @@ function validateEmail(email: string): { valid: boolean; error?: string } {
   return { valid: true };
 }
 
-const sucursalEnum = z.enum(SUCURSAL_LIST as unknown as [Sucursal, ...Sucursal[]]);
+/* ────────────────────────────────────────────────────────────────────────── */
+/*  Disponibilidad — generación local (sin consultar Graph aún)              */
+/* ────────────────────────────────────────────────────────────────────────── */
+
+interface TimeSlot {
+  iso_start: string; // ISO con offset Lima (-05:00)
+  iso_end: string;
+  label: string; // ej. "martes 16 de abril, 10:00 a.m."
+}
+
+const DIAS_ES = [
+  "domingo",
+  "lunes",
+  "martes",
+  "miércoles",
+  "jueves",
+  "viernes",
+  "sábado",
+];
+const MESES_ES = [
+  "enero",
+  "febrero",
+  "marzo",
+  "abril",
+  "mayo",
+  "junio",
+  "julio",
+  "agosto",
+  "septiembre",
+  "octubre",
+  "noviembre",
+  "diciembre",
+];
+
+function formatLima(date: Date, hour: number): { iso: string; hhmm: string } {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  const hh = String(hour).padStart(2, "0");
+  return { iso: `${y}-${m}-${d}T${hh}:00:00-05:00`, hhmm: `${hh}:00` };
+}
+
+function addMinutesIso(iso: string, minutes: number): string {
+  const base = new Date(iso);
+  base.setMinutes(base.getMinutes() + minutes);
+  const y = base.getFullYear();
+  const m = String(base.getMonth() + 1).padStart(2, "0");
+  const d = String(base.getDate()).padStart(2, "0");
+  const hh = String(base.getHours()).padStart(2, "0");
+  const mm = String(base.getMinutes()).padStart(2, "0");
+  return `${y}-${m}-${d}T${hh}:${mm}:00-05:00`;
+}
+
+function humanLabel(date: Date, hhmm: string): string {
+  const diaSem = DIAS_ES[date.getDay()];
+  const numDia = date.getDate();
+  const mes = MESES_ES[date.getMonth()];
+  const [h] = hhmm.split(":").map(Number);
+  const ampm = h < 12 ? "a. m." : "p. m.";
+  const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
+  return `${diaSem} ${numDia} de ${mes}, ${h12}:00 ${ampm}`;
+}
+
+function generateSlots(daysAhead: number, limit: number): TimeSlot[] {
+  const { startHour, endHour } = config.ramo.businessHours;
+  const { startHour: lunchStart, endHour: lunchEnd } = config.ramo.lunchBlock;
+  const duration = config.ramo.bookingDurationMin;
+  const businessDaysIso = new Set(config.ramo.businessDaysIso);
+
+  const slots: TimeSlot[] = [];
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  for (let offset = 1; offset <= Math.max(daysAhead, 7); offset++) {
+    if (slots.length >= limit) break;
+    const d = new Date(today);
+    d.setDate(d.getDate() + offset);
+
+    const isoDay = d.getDay() === 0 ? 7 : d.getDay(); // ISO: Lun=1 .. Dom=7
+    if (!businessDaysIso.has(isoDay)) continue;
+
+    const pickHours = [startHour, 15].filter(
+      (h) => h >= startHour && h + 1 <= endHour && (h < lunchStart || h >= lunchEnd),
+    );
+
+    for (const h of pickHours) {
+      if (slots.length >= limit) break;
+      const start = formatLima(d, h);
+      slots.push({
+        iso_start: start.iso,
+        iso_end: addMinutesIso(start.iso, duration),
+        label: humanLabel(d, start.hhmm),
+      });
+    }
+  }
+  return slots;
+}
+
+/* ────────────────────────────────────────────────────────────────────────── */
+/*  Tools                                                                     */
+/* ────────────────────────────────────────────────────────────────────────── */
 
 export function createTools(contactKey: string) {
-  const agendarVisita = tool({
-  description:
-    "Guardar información del lead cuando el cliente CONFIRME la cita después del resumen. Envía los datos a la base de datos y a e-admin.mx.",
-  parameters: z.object({
-    nombre_completo: z.string().describe("Nombre completo del cliente"),
-    correo: z.string().describe("Correo electrónico del cliente"),
-    sucursal: sucursalEnum.describe("Sucursal elegida"),
-    fecha_visita: z
-      .string()
-      .describe("Fecha de visita en formato YYYY-MM-DD"),
-    hora_visita: z.string().describe("Hora de visita en formato HH:MM (24h)"),
-    telefono: z.string().describe("Número de teléfono del cliente"),
-    inversion: z
-      .string()
-      .describe(
-        "Plan de inversión elegido: Semanal, Mensualidad, Pago oportuno, Bimestre, Trimestre, Semestre, Anualidad o Por definir",
-      ),
-    motivacion: z
-      .string()
-      .describe("Principal motivación del cliente para ir al gym"),
-    requisito: z
-      .string()
-      .describe(
-        "Qué debe cumplir Fitness Space para que el cliente lo elija",
-      ),
-  }),
-  execute: async (params) => {
-    const emailCheck = validateEmail(params.correo);
-    if (!emailCheck.valid) {
-      return { success: false, error: emailCheck.error };
-    }
-
-    const { nombre, paterno, materno } = splitName(params.nombre_completo);
-
-    const apiKey = config.erpKeys[params.sucursal];
-    if (!apiKey) {
-      return { success: false, error: "Sucursal no válida" };
-    }
-
-    const now = new Date();
-    const fechaRegistro = now.toISOString().replace("T", " ").slice(0, 19);
-
-    try {
-      const res = await fetch("https://e-admin.mx/api/prospectos", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-API-Key": apiKey,
-        },
-        body: JSON.stringify({
-          nombre,
-          paterno,
-          materno,
-          correo: params.correo.toLowerCase().trim(),
-          telefono: params.telefono,
-          fecha_visita: params.fecha_visita,
-          hora_visita: params.hora_visita,
-          canal: "instagram",
-          estado: "agendado",
-          motivacion: params.motivacion,
-          inversion: params.inversion,
-          fecha_registro: fechaRegistro,
-        }),
-      });
-
-      const body = await res.text();
-      console.log("e-admin.mx response:", res.status, body);
-
-      // Long-term memory: save contact info to contacts table
+  const guardarLead = tool({
+    description:
+      "Guardar o actualizar los datos del lead (nombre, empresa, RUC, cargo, necesidad, etc.) a medida que el cliente los brinda. Llámalo apenas tengas un dato nuevo — no esperes a tener todo.",
+    parameters: z.object({
+      nombre: z.string().optional(),
+      empresa: z.string().optional(),
+      cargo: z.string().optional(),
+      ruc: z.string().optional(),
+      correo: z.string().optional(),
+      telefono: z.string().optional(),
+      necesidad: z
+        .string()
+        .optional()
+        .describe("Breve descripción del interés o necesidad del cliente"),
+      modalidad: z
+        .enum(["virtual", "presencial"])
+        .optional()
+        .describe("Modalidad preferida para la consultoría"),
+    }),
+    execute: async (params) => {
+      if (params.correo) {
+        const check = validateEmail(params.correo);
+        if (!check.valid) {
+          return { success: false, error: check.error };
+        }
+      }
       try {
         await database.upsertContact(contactKey, {
-          name: params.nombre_completo,
-          email: params.correo.toLowerCase().trim(),
-          phone: params.telefono,
-          preferred_sucursal: params.sucursal,
-          investment_plan: params.inversion,
-          motivation: params.motivacion,
-          requirement: params.requisito,
+          name: params.nombre ?? null,
+          empresa: params.empresa ?? null,
+          cargo: params.cargo ?? null,
+          ruc: params.ruc ?? null,
+          email: params.correo?.toLowerCase().trim() ?? null,
+          phone: params.telefono ?? null,
+          necesidad: params.necesidad ?? null,
+          modalidad: params.modalidad ?? null,
         });
-        console.log("Contact profile updated for", contactKey);
+        return { success: true };
       } catch (err) {
-        console.error("Failed to update contact profile:", err);
+        console.error("guardarLead error:", err);
+        return {
+          success: false,
+          error: "No se pudo guardar la información en este momento.",
+        };
+      }
+    },
+  });
+
+  const sugerirHorarios = tool({
+    description:
+      "Devuelve 3-4 opciones de horario disponibles para la consultoría gratuita de SAP Business One, a partir de mañana, en horario hábil de Lima (L-V, 09:00-18:00, evitando almuerzo 12-14). Úsalo antes de pedirle al cliente que elija día/hora.",
+    parameters: z.object({
+      dias_adelante: z
+        .number()
+        .int()
+        .min(1)
+        .max(14)
+        .default(7)
+        .describe("Cuántos días hacia adelante explorar (máx 14)"),
+      cantidad: z
+        .number()
+        .int()
+        .min(1)
+        .max(6)
+        .default(4)
+        .describe("Cuántos slots sugerir"),
+    }),
+    execute: async ({ dias_adelante, cantidad }) => {
+      const slots = generateSlots(dias_adelante, cantidad);
+      return { success: true, slots, timezone: config.ramo.timezone };
+    },
+  });
+
+  const confirmarReserva = tool({
+    description:
+      "Crear el evento de consultoría en Outlook cuando el cliente CONFIRME expresamente el resumen. Llamar solo una vez, con todos los datos validados. Si Outlook aún no está configurado, el sistema simula la reserva y retorna `simulated: true`; aun así, responde al cliente como si estuviera agendada.",
+    parameters: z.object({
+      nombre: z.string().describe("Nombre completo del cliente"),
+      correo: z.string().describe("Correo del cliente (para la invitación)"),
+      empresa: z.string().optional(),
+      ruc: z.string().optional(),
+      cargo: z.string().optional(),
+      necesidad: z.string().describe("Resumen breve de la necesidad"),
+      iso_start: z
+        .string()
+        .describe("Inicio ISO 8601 con offset -05:00 (ej: 2026-04-20T10:00:00-05:00)"),
+      iso_end: z
+        .string()
+        .describe("Fin ISO 8601 con offset -05:00"),
+      modalidad: z.enum(["virtual", "presencial"]),
+      direccion_presencial: z
+        .string()
+        .optional()
+        .describe("Solo si modalidad = presencial"),
+    }),
+    execute: async (p) => {
+      const check = validateEmail(p.correo);
+      if (!check.valid) {
+        return { success: false, error: check.error };
+      }
+
+      const subject = `Consultoría SAP Business One — ${p.empresa ?? p.nombre}`;
+      const body = [
+        `<p>Consultoría gratuita con <strong>Ramo LATAM · Partner SAP Business One</strong>.</p>`,
+        `<p><strong>Cliente:</strong> ${p.nombre}${p.cargo ? ` — ${p.cargo}` : ""}</p>`,
+        p.empresa ? `<p><strong>Empresa:</strong> ${p.empresa}${p.ruc ? ` (RUC ${p.ruc})` : ""}</p>` : "",
+        `<p><strong>Necesidad:</strong> ${p.necesidad}</p>`,
+        `<p><strong>Modalidad:</strong> ${p.modalidad}${p.direccion_presencial ? ` — ${p.direccion_presencial}` : ""}</p>`,
+      ]
+        .filter(Boolean)
+        .join("");
+
+      const result = await outlookCalendar.createEvent({
+        subject,
+        body,
+        startIso: p.iso_start,
+        endIso: p.iso_end,
+        attendeeEmail: p.correo.toLowerCase().trim(),
+        attendeeName: p.nombre,
+        modalidad: p.modalidad,
+        location: p.direccion_presencial ?? null,
+      });
+
+      if (!result.success) {
+        return { success: false, error: result.error ?? "Error al agendar" };
+      }
+
+      try {
+        await database.upsertContact(contactKey, {
+          name: p.nombre,
+          empresa: p.empresa ?? null,
+          ruc: p.ruc ?? null,
+          cargo: p.cargo ?? null,
+          email: p.correo.toLowerCase().trim(),
+          necesidad: p.necesidad,
+          modalidad: p.modalidad,
+        });
+        await database.saveBooking({
+          contactKey,
+          eventId: result.eventId,
+          simulated: result.simulated,
+          scheduledAt: p.iso_start,
+          durationMin: config.ramo.bookingDurationMin,
+          modalidad: p.modalidad,
+          emailCliente: p.correo.toLowerCase().trim(),
+          topic: p.necesidad,
+        });
+      } catch (err) {
+        console.error("No se pudo persistir booking:", err);
       }
 
       return {
         success: true,
-        message: "Visita agendada correctamente en el sistema",
+        simulated: result.simulated,
+        event_id: result.eventId,
+        join_url: result.joinUrl,
       };
-    } catch (err) {
-      console.error("e-admin.mx error:", err);
-      return {
-        success: false,
-        error:
-          "Error al guardar en el sistema, pero la visita queda registrada",
-      };
-    }
-  },
-  });
-
-  const crearEventoCalendar = tool({
-  description:
-    "Crear un evento de visita en Google Calendar para la sucursal correspondiente. Usar ÚNICAMENTE cuando el cliente CONFIRME la cita.",
-  parameters: z.object({
-    sucursal: sucursalEnum.describe("Sucursal elegida por el cliente"),
-    event_start: z
-      .string()
-      .describe(
-        "Fecha y hora de inicio en ISO 8601 con zona horaria -06:00 (ej: 2026-03-20T09:00:00-06:00)",
-      ),
-    event_end: z
-      .string()
-      .describe(
-        "Fecha y hora de fin en ISO 8601, una hora después del inicio (ej: 2026-03-20T10:00:00-06:00)",
-      ),
-    event_description: z
-      .string()
-      .describe(
-        "Descripción del evento con datos del cliente: nombre, correo, teléfono, sucursal, plan, motivación, requisito",
-      ),
-    event_title: z
-      .string()
-      .describe(
-        "Título del evento. Formato: Visita {sucursal} - {nombre del cliente}",
-      ),
-  }),
-  execute: async (params) => {
-    const calendarId = config.calendarIds[params.sucursal];
-    if (!calendarId) {
-      return { success: false, error: "Sucursal no válida para calendar" };
-    }
-
-    return createCalendarEvent(config.googleCredentials, calendarId, {
-      summary: params.event_title,
-      description: params.event_description,
-      start: params.event_start,
-      end: params.event_end,
-    });
-  },
+    },
   });
 
   return {
-    agendar_visita: agendarVisita,
-    crear_evento_calendar: crearEventoCalendar,
+    guardar_lead: guardarLead,
+    sugerir_horarios: sugerirHorarios,
+    confirmar_reserva: confirmarReserva,
   };
 }

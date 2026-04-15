@@ -151,10 +151,6 @@ async function processAndReply(
       name: sender.name ?? null,
       phone: sender.phone_number ?? null,
       email: sender.email ?? null,
-      ig_username:
-        channel === "instagram"
-          ? sender.identifier ?? sender.name ?? null
-          : null,
     });
 
     const contact = await database.getContact(contactKey);

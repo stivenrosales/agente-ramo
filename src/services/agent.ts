@@ -10,34 +10,29 @@ const openrouter = createOpenAI({
   apiKey: config.openrouterApiKey,
 });
 
-const MODEL = "google/gemini-3.1-flash-lite-preview";
-const MAX_STEPS = 5;
+const MODEL = "google/gemini-2.5-flash";
+const MAX_STEPS = 6;
 
 function buildContactContext(contact: Contact | null): string {
   if (!contact) return "";
 
-  const lines: string[] = ["", "---", "", "## CONTACTO CONOCIDO"];
+  const lines: string[] = ["", "---", "", "## FICHA DEL CONTACTO"];
   if (contact.name) lines.push(`Nombre: ${contact.name}`);
-  if (contact.phone) lines.push(`Teléfono: ${contact.phone}`);
+  if (contact.empresa) lines.push(`Empresa: ${contact.empresa}`);
+  if (contact.cargo) lines.push(`Cargo: ${contact.cargo}`);
+  if (contact.ruc) lines.push(`RUC: ${contact.ruc}`);
   if (contact.email) lines.push(`Correo: ${contact.email}`);
-  if (contact.preferred_sucursal)
-    lines.push(`Sucursal preferida: ${contact.preferred_sucursal}`);
-  if (contact.investment_plan)
-    lines.push(`Plan de interés: ${contact.investment_plan}`);
-  if (contact.motivation) lines.push(`Motivación: ${contact.motivation}`);
-  if (contact.requirement) lines.push(`Requisito: ${contact.requirement}`);
+  if (contact.phone) lines.push(`Teléfono: ${contact.phone}`);
+  if (contact.necesidad) lines.push(`Necesidad: ${contact.necesidad}`);
+  if (contact.modalidad) lines.push(`Modalidad preferida: ${contact.modalidad}`);
   if (contact.notes) lines.push(`Notas: ${contact.notes}`);
 
-  if (lines.length === 4) return ""; // no data
+  if (lines.length === 4) return "";
 
-  lines.push("");
   lines.push(
-    "**IMPORTANTE**: Este cliente YA te ha hablado antes. NO preguntes datos " +
-      "que ya tenés en la ficha (nombre, correo, teléfono, etc.). Saludalo por " +
-      "su nombre como a un conocido. Si volvió a escribir, probablemente quiere " +
-      "seguir con algo que dejamos pendiente o tiene una nueva consulta.",
+    "",
+    "**IMPORTANTE**: este cliente ya te habló antes. NO vuelvas a pedir datos que ya están en la ficha. Salúdalo por su nombre.",
   );
-
   return lines.join("\n");
 }
 

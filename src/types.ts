@@ -8,11 +8,11 @@ export interface Contact {
   name: string | null;
   phone: string | null;
   email: string | null;
-  ig_username: string | null;
-  preferred_sucursal: string | null;
-  investment_plan: string | null;
-  motivation: string | null;
-  requirement: string | null;
+  ruc: string | null;
+  empresa: string | null;
+  cargo: string | null;
+  necesidad: string | null;
+  modalidad: string | null;
   notes: string | null;
   first_seen: Date;
   last_seen: Date;
