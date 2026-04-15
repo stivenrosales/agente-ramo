@@ -19,7 +19,7 @@ export interface CreateEventInput {
   endIso: string;
   attendeeEmail: string;
   attendeeName?: string | null;
-  modalidad: "virtual" | "presencial";
+  modalidad: "virtual" | "oficina_ramo" | "oficina_cliente";
   location?: string | null;
 }
 

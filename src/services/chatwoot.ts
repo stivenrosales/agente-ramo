@@ -52,4 +52,24 @@ export const chatwoot = {
     }
     return lastResult;
   },
+
+  async sendPrivateNote(
+    conversationId: number | string,
+    content: string,
+  ): Promise<string> {
+    const res = await fetch(conversationUrl(conversationId), {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        content,
+        message_type: "outgoing",
+        private: true,
+      }),
+    });
+    const text = await res.text();
+    if (!res.ok) {
+      console.error("Chatwoot private note failed:", res.status, text);
+    }
+    return text;
+  },
 };

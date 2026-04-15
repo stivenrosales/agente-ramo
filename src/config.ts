@@ -26,10 +26,13 @@ const envSchema = z.object({
   RAMO_BUSINESS_HOURS: z.string().default("09:00-18:00"),
   RAMO_LUNCH_BLOCK: z.string().default("12:00-14:00"),
   RAMO_BUSINESS_DAYS: z.string().default("1,2,3,4,5"), // 1=Lun ... 7=Dom (ISO)
-  RAMO_BOOKING_DURATION_MIN: z.coerce.number().default(30),
+  RAMO_BOOKING_DURATION_MIN: z.coerce.number().default(60),
   RAMO_DEFAULT_MEETING_PLATFORM: z
     .enum(["teams", "zoom", "meet"])
     .default("teams"),
+  RAMO_OFFICE_ADDRESS: z
+    .string()
+    .default("Av. Aviación 2405, San Borja 15063, Lima"),
 
   // Seguridad y server
   WEBHOOK_SECRET: z.string().optional().default(""),
@@ -95,6 +98,7 @@ export const config = {
     businessDaysIso,
     bookingDurationMin: env.RAMO_BOOKING_DURATION_MIN,
     defaultPlatform: env.RAMO_DEFAULT_MEETING_PLATFORM,
+    officeAddress: env.RAMO_OFFICE_ADDRESS,
   },
   webhookSecret: env.WEBHOOK_SECRET,
   port: env.PORT,

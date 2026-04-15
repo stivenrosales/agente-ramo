@@ -3,6 +3,7 @@ import { z } from "zod";
 import { config } from "../config.js";
 import { database } from "./database.js";
 import { outlookCalendar } from "./outlook-calendar.js";
+import { conversationSummary } from "./conversation-summary.js";
 
 const EMAIL_TYPOS: Record<string, string> = {
   "gamil.com": "gmail.com",
@@ -133,7 +134,10 @@ function generateSlots(daysAhead: number, limit: number): TimeSlot[] {
 /*  Tools                                                                     */
 /* ────────────────────────────────────────────────────────────────────────── */
 
-export function createTools(contactKey: string) {
+export function createTools(
+  contactKey: string,
+  conversationId: number | string,
+) {
   const guardarLead = tool({
     description:
       "Guardar o actualizar los datos del lead (nombre, empresa, RUC, cargo, necesidad, etc.) a medida que el cliente los brinda. Llámalo apenas tengas un dato nuevo — no esperes a tener todo.",
@@ -149,9 +153,11 @@ export function createTools(contactKey: string) {
         .optional()
         .describe("Breve descripción del interés o necesidad del cliente"),
       modalidad: z
-        .enum(["virtual", "presencial"])
+        .enum(["virtual", "oficina_ramo", "oficina_cliente"])
         .optional()
-        .describe("Modalidad preferida para la consultoría"),
+        .describe(
+          "Modalidad preferida: 'virtual' (Teams), 'oficina_ramo' (San Borja), 'oficina_cliente' (Lima Metro)",
+        ),
     }),
     execute: async (params) => {
       if (params.correo) {
@@ -223,11 +229,13 @@ export function createTools(contactKey: string) {
       iso_end: z
         .string()
         .describe("Fin ISO 8601 con offset -05:00"),
-      modalidad: z.enum(["virtual", "presencial"]),
-      direccion_presencial: z
+      modalidad: z.enum(["virtual", "oficina_ramo", "oficina_cliente"]),
+      direccion_cliente: z
         .string()
         .optional()
-        .describe("Solo si modalidad = presencial"),
+        .describe(
+          "Dirección exacta del cliente. Obligatorio si modalidad = 'oficina_cliente'. Ignorado en las otras.",
+        ),
     }),
     execute: async (p) => {
       const check = validateEmail(p.correo);
@@ -235,13 +243,38 @@ export function createTools(contactKey: string) {
         return { success: false, error: check.error };
       }
 
+      // Resolver ubicación según modalidad.
+      let location: string | null;
+      let modalidadHumana: string;
+      switch (p.modalidad) {
+        case "virtual":
+          location = null;
+          modalidadHumana = "Virtual por Microsoft Teams";
+          break;
+        case "oficina_ramo":
+          location = `Oficina Ramo LATAM · ${config.ramo.officeAddress}`;
+          modalidadHumana = `Oficina Ramo LATAM (${config.ramo.officeAddress})`;
+          break;
+        case "oficina_cliente":
+          if (!p.direccion_cliente) {
+            return {
+              success: false,
+              error:
+                "Falta la dirección del cliente (modalidad=oficina_cliente).",
+            };
+          }
+          location = `Oficina del cliente · ${p.direccion_cliente}`;
+          modalidadHumana = `Oficina del cliente (${p.direccion_cliente})`;
+          break;
+      }
+
       const subject = `Consultoría SAP Business One — ${p.empresa ?? p.nombre}`;
       const body = [
-        `<p>Consultoría gratuita con <strong>Ramo LATAM · Partner SAP Business One</strong>.</p>`,
+        `<p>Consultoría gratuita con <strong>Ramo LATAM · Partner SAP Business One</strong> (60 min).</p>`,
         `<p><strong>Cliente:</strong> ${p.nombre}${p.cargo ? ` — ${p.cargo}` : ""}</p>`,
         p.empresa ? `<p><strong>Empresa:</strong> ${p.empresa}${p.ruc ? ` (RUC ${p.ruc})` : ""}</p>` : "",
         `<p><strong>Necesidad:</strong> ${p.necesidad}</p>`,
-        `<p><strong>Modalidad:</strong> ${p.modalidad}${p.direccion_presencial ? ` — ${p.direccion_presencial}` : ""}</p>`,
+        `<p><strong>Modalidad:</strong> ${modalidadHumana}</p>`,
       ]
         .filter(Boolean)
         .join("");
@@ -254,7 +287,7 @@ export function createTools(contactKey: string) {
         attendeeEmail: p.correo.toLowerCase().trim(),
         attendeeName: p.nombre,
         modalidad: p.modalidad,
-        location: p.direccion_presencial ?? null,
+        location,
       });
 
       if (!result.success) {
@@ -285,6 +318,21 @@ export function createTools(contactKey: string) {
         console.error("No se pudo persistir booking:", err);
       }
 
+      database.setConversationState(contactKey, "booked").catch(() => {});
+
+      conversationSummary
+        .generateAndPost(conversationId, {
+          contactKey,
+          reason: "booked",
+          extra: {
+            fecha_iso: p.iso_start,
+            modalidad: p.modalidad,
+            empresa: p.empresa ?? null,
+            topic: p.necesidad,
+          },
+        })
+        .catch(() => {});
+
       return {
         success: true,
         simulated: result.simulated,
@@ -294,9 +342,31 @@ export function createTools(contactKey: string) {
     },
   });
 
+  const solicitarAsesorHumano = tool({
+    description:
+      "Úsalo SOLO cuando el cliente pida hablar con un humano O cuando el bot literalmente no puede responder con la info del prompt (después de haber intentado ayudar). NO lo uses si el cliente solo pregunta precio o algo técnico — ahí tu trabajo es derivar a agendar consultoría. Solo marca escalación genuina.",
+    parameters: z.object({
+      razon: z
+        .string()
+        .describe("Breve motivo por el que derivas a humano"),
+    }),
+    execute: async ({ razon }) => {
+      database.setConversationState(contactKey, "escalated").catch(() => {});
+      conversationSummary
+        .generateAndPost(conversationId, {
+          contactKey,
+          reason: "escalated",
+          extra: { razon },
+        })
+        .catch(() => {});
+      return { success: true, escalated: true };
+    },
+  });
+
   return {
     guardar_lead: guardarLead,
     sugerir_horarios: sugerirHorarios,
     confirmar_reserva: confirmarReserva,
+    solicitar_asesor_humano: solicitarAsesorHumano,
   };
 }

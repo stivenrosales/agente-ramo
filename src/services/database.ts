@@ -15,6 +15,22 @@ function resolveSsl(): SslOption {
 
 const sql = postgres(config.databaseUrl, { ssl: resolveSsl() });
 
+export interface ConversationStateRow {
+  contact_key: string;
+  conversation_id: number;
+  state: string;
+  last_msg_at: Date;
+  followup_sent: boolean;
+  updated_at: Date;
+}
+
+export type ConversationStateValue =
+  | "open"
+  | "booked"
+  | "escalated"
+  | "rejected"
+  | "done";
+
 export interface BookingRecord {
   contactKey: string;
   eventId: string | null;
@@ -111,6 +127,79 @@ export const database = {
         )
       `;
     }
+  },
+
+  // ── Conversation state (follow-up scheduler) ───────────────────────────────
+  // Transiciones:
+  //   - Mensaje entrante        -> touchConversation (state='open', reset followup)
+  //   - confirmar_reserva OK    -> setConversationState('booked')
+  //   - solicitar_asesor_humano -> setConversationState('escalated')
+  //   - mini-IA decide no enviar -> setConversationState('rejected' | 'done')
+  //   - follow-up enviado        -> markFollowupSent (state sigue 'open')
+
+  async touchConversation(
+    contactKey: string,
+    conversationId: number | string,
+  ): Promise<void> {
+    const convId = Number(conversationId);
+    await sql`
+      INSERT INTO conversation_state (
+        contact_key, conversation_id, state, last_msg_at, followup_sent, updated_at
+      ) VALUES (
+        ${contactKey}, ${convId}, 'open', NOW(), FALSE, NOW()
+      )
+      ON CONFLICT (contact_key) DO UPDATE SET
+        conversation_id = EXCLUDED.conversation_id,
+        state           = 'open',
+        last_msg_at     = NOW(),
+        followup_sent   = FALSE,
+        updated_at      = NOW()
+    `;
+  },
+
+  async setConversationState(
+    contactKey: string,
+    state: ConversationStateValue,
+  ): Promise<void> {
+    const rows = await sql`
+      UPDATE conversation_state
+         SET state = ${state}, updated_at = NOW()
+       WHERE contact_key = ${contactKey}
+       RETURNING contact_key
+    `;
+    if (rows.length === 0) {
+      console.warn(
+        `[conversation_state] setConversationState: no row for ${contactKey}`,
+      );
+    }
+  },
+
+  async markFollowupSent(contactKey: string): Promise<void> {
+    await sql`
+      UPDATE conversation_state
+         SET followup_sent = TRUE, updated_at = NOW()
+       WHERE contact_key = ${contactKey}
+    `;
+  },
+
+  async getFollowupCandidates(): Promise<ConversationStateRow[]> {
+    const rows = await sql`
+      SELECT contact_key, conversation_id, state, last_msg_at,
+             followup_sent, updated_at
+        FROM conversation_state
+       WHERE state = 'open'
+         AND followup_sent = FALSE
+         AND last_msg_at <= NOW() - INTERVAL '30 minutes'
+       LIMIT 50
+    `;
+    return rows.map((r) => ({
+      contact_key: r.contact_key as string,
+      conversation_id: Number(r.conversation_id),
+      state: r.state as string,
+      last_msg_at: r.last_msg_at as Date,
+      followup_sent: r.followup_sent as boolean,
+      updated_at: r.updated_at as Date,
+    }));
   },
 
   async saveBooking(b: BookingRecord): Promise<void> {

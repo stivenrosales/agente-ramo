@@ -2,6 +2,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { agent } from "../services/agent.js";
 import { database } from "../services/database.js";
 import { chatwoot } from "../services/chatwoot.js";
+import { multimodal } from "../services/multimodal.js";
 import { config } from "../config.js";
 import type {
   ChatwootChannel,
@@ -124,14 +125,19 @@ export async function handleWebhook(request: Request): Promise<Response> {
     return Response.json({ status: "ignored", reason: "private note" });
   }
 
-  const userMessage = (payload.content ?? "").trim();
+  const rawText = (payload.content ?? "").trim();
+  const rawAttachments = (payload as { attachments?: unknown }).attachments;
+  const attachments = Array.isArray(rawAttachments)
+    ? (rawAttachments as Array<Record<string, unknown>>)
+    : [];
   const conversation = payload.conversation;
   const conversationId = conversation?.id;
   const sender: ChatwootSender | undefined =
     payload.sender ?? conversation?.meta?.sender;
   const channel = mapChannel(payload.inbox?.channel_type);
 
-  if (!userMessage || !conversationId || !sender) {
+  // Requiere al menos texto O attachments + conversación + sender.
+  if ((!rawText && attachments.length === 0) || !conversationId || !sender) {
     console.log("REJECTED: missing content/conversation/sender");
     return Response.json(
       { error: "Missing content, conversation.id, or sender" },
@@ -171,11 +177,16 @@ export async function handleWebhook(request: Request): Promise<Response> {
   );
 
   // Fire-and-forget
-  processAndReply(conversationId, contactKey, userMessage, channel, sender).catch(
-    (err) => {
-      console.error("Unhandled error in background processing:", err);
-    },
-  );
+  processAndReply(
+    conversationId,
+    contactKey,
+    rawText,
+    attachments,
+    channel,
+    sender,
+  ).catch((err) => {
+    console.error("Unhandled error in background processing:", err);
+  });
 
   return Response.json({ status: "processing" });
 }
@@ -183,7 +194,8 @@ export async function handleWebhook(request: Request): Promise<Response> {
 async function processAndReply(
   conversationId: number,
   contactKey: string,
-  userMessage: string,
+  rawText: string,
+  attachments: Array<Record<string, unknown>>,
   channel: ChatwootChannel,
   sender: ChatwootSender,
 ): Promise<void> {
@@ -193,6 +205,20 @@ async function processAndReply(
       phone: sender.phone_number ?? null,
       email: sender.email ?? null,
     });
+
+    // Marca conversación como activa — resetea timer de follow-up.
+    await database
+      .touchConversation(contactKey, conversationId)
+      .catch((err) => console.warn("touchConversation failed:", err));
+
+    // Enriquece el mensaje con transcripciones/descripciones de attachments.
+    const enriched = await multimodal.enrichUserMessage(rawText, attachments);
+    if (enriched.processed > 0 || enriched.skipped > 0) {
+      console.log(
+        `Multimodal: processed=${enriched.processed} skipped=${enriched.skipped}`,
+      );
+    }
+    const userMessage = enriched.text;
 
     const contact = await database.getContact(contactKey);
     console.log("Contact:", contact?.name ?? "new", `(${contactKey})`);
@@ -204,7 +230,7 @@ async function processAndReply(
     await database.saveMessage(contactKey, senderRef, "user", userMessage);
 
     console.log("Calling LLM with history + contact profile...");
-    const reply = await agent.chat(userMessage, history, contactKey, contact);
+    const reply = await agent.chat(userMessage, history, contactKey, conversationId, contact);
     console.log("AI reply length:", reply.length);
 
     await database.saveMessage(contactKey, senderRef, "assistant", reply);

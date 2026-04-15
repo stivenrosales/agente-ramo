@@ -5,12 +5,13 @@ import { buildSystemPrompt } from "./system-prompt.js";
 import { createTools } from "./tools.js";
 import type { ChatMessage, Contact } from "../types.js";
 
-const openrouter = createOpenAI({
+export const openrouter = createOpenAI({
   baseURL: "https://openrouter.ai/api/v1",
   apiKey: config.openrouterApiKey,
 });
 
-const MODEL = "google/gemini-3.1-flash-lite-preview";
+export const AGENT_MODEL = "google/gemini-3.1-flash-lite-preview";
+const MODEL = AGENT_MODEL;
 const MAX_STEPS = 6;
 
 function buildContactContext(contact: Contact | null): string {
@@ -41,6 +42,7 @@ export const agent = {
     userMessage: string,
     history: ChatMessage[],
     contactKey: string,
+    conversationId: number | string,
     contact: Contact | null = null,
   ): Promise<string> {
     const messages = [
@@ -52,7 +54,7 @@ export const agent = {
     ];
 
     const systemPrompt = buildSystemPrompt() + buildContactContext(contact);
-    const tools = createTools(contactKey);
+    const tools = createTools(contactKey, conversationId);
 
     const { text } = await generateText({
       model: openrouter(MODEL),

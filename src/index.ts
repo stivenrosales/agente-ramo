@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { serve } from "@hono/node-server";
 import { config } from "./config.js";
 import { handleWebhook } from "./handlers/webhook.js";
+import { startFollowupScheduler } from "./services/followup-scheduler.js";
 
 const app = new Hono();
 
@@ -24,3 +25,5 @@ serve({ fetch: app.fetch, port: config.port }, (info) => {
     `🚀 agente-ramo listening on http://localhost:${info.port} [${config.nodeEnv}]`,
   );
 });
+
+startFollowupScheduler();
