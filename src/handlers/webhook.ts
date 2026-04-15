@@ -188,10 +188,6 @@ async function processAndReply(
   sender: ChatwootSender,
 ): Promise<void> {
   try {
-    // UX: marcar como leído y arrancar typing mientras pensamos la respuesta.
-    chatwoot.markRead(conversationId).catch(() => {});
-    chatwoot.startTyping(conversationId).catch(() => {});
-
     await database.upsertContact(contactKey, {
       name: sender.name ?? null,
       phone: sender.phone_number ?? null,
