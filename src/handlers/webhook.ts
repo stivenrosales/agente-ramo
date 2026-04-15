@@ -1,3 +1,4 @@
+import { createHmac, timingSafeEqual } from "node:crypto";
 import { agent } from "../services/agent.js";
 import { database } from "../services/database.js";
 import { chatwoot } from "../services/chatwoot.js";
@@ -7,6 +8,39 @@ import type {
   ChatwootSender,
   ChatwootWebhookPayload,
 } from "../types.js";
+
+/**
+ * Verifica la firma HMAC-SHA256 que manda Chatwoot en el header
+ * `X-Chatwoot-Signature` (hex del digest del body crudo, clave = WEBHOOK_SECRET).
+ * Permite también los headers legacy `x-webhook-secret` / `x-chatwoot-secret`
+ * (comparación plana) por si otro cliente los usa.
+ */
+function verifySignature(
+  rawBody: string,
+  headers: Headers,
+  secret: string,
+): boolean {
+  const signature =
+    headers.get("x-chatwoot-signature") ??
+    headers.get("x-hub-signature-256") ??
+    "";
+
+  if (signature) {
+    const expected = createHmac("sha256", secret).update(rawBody).digest("hex");
+    const provided = signature.replace(/^sha256=/, "").trim();
+    if (provided.length !== expected.length) return false;
+    try {
+      return timingSafeEqual(Buffer.from(expected), Buffer.from(provided));
+    } catch {
+      return false;
+    }
+  }
+
+  // Fallback: plain shared secret en header custom (útil para tests/n8n/curl).
+  const plain =
+    headers.get("x-webhook-secret") ?? headers.get("x-chatwoot-secret");
+  return plain === secret;
+}
 
 function mapChannel(channelType?: string): ChatwootChannel {
   if (!channelType) return "unknown";
@@ -52,19 +86,19 @@ function getContactKey(
 export async function handleWebhook(request: Request): Promise<Response> {
   // Security: verify shared secret header if configured.
   // Configure the same value as "HMAC Token" / custom header in your Chatwoot webhook.
+  // Leemos el body crudo primero (necesario para validar HMAC).
+  const rawBody = await request.text();
+
   if (config.webhookSecret) {
-    const provided =
-      request.headers.get("x-webhook-secret") ??
-      request.headers.get("x-chatwoot-secret");
-    if (provided !== config.webhookSecret) {
-      console.log("REJECTED: invalid or missing webhook secret header");
+    if (!verifySignature(rawBody, request.headers, config.webhookSecret)) {
+      console.log("REJECTED: invalid or missing webhook signature");
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
   }
 
   let payload: ChatwootWebhookPayload;
   try {
-    payload = (await request.json()) as ChatwootWebhookPayload;
+    payload = JSON.parse(rawBody) as ChatwootWebhookPayload;
   } catch {
     return Response.json({ error: "Invalid JSON body" }, { status: 400 });
   }
