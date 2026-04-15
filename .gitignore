@@ -1,0 +1,10 @@
+node_modules/
+dist/
+
+# Environment — block ALL .env variants (production, staging, local, etc.)
+.env
+.env.*
+# allow only the public template (env.example has no leading dot)
+
+*.log
+.DS_Store
