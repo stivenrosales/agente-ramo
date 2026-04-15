@@ -89,6 +89,13 @@ export async function handleWebhook(request: Request): Promise<Response> {
   // Leemos el body crudo primero (necesario para validar HMAC).
   const rawBody = await request.text();
 
+  // Log de headers para debug (útil para entender qué firma envía Chatwoot).
+  if (config.nodeEnv !== "production" || process.env.DEBUG_WEBHOOK === "1") {
+    const headersObj: Record<string, string> = {};
+    request.headers.forEach((v, k) => (headersObj[k] = v));
+    console.log("WEBHOOK HEADERS:", JSON.stringify(headersObj));
+  }
+
   if (config.webhookSecret) {
     if (!verifySignature(rawBody, request.headers, config.webhookSecret)) {
       console.log("REJECTED: invalid or missing webhook signature");
