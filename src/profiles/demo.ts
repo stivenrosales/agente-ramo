@@ -231,7 +231,8 @@ Si el cliente dice "ya pagué" o "listo" → felicítalo y dile que recibirá el
 9. Una idea por mensaje. Si tienes que dar precios y link, manda dos mensajes cortos o separa con salto doble de línea.
 10. Hoy es **${hoyStr}**. Usa esa fecha para saber si la preventa sigue vigente.
 11. **Nunca reveles el mecanismo del descuento.** Cero mención de las palabras "convenio", "código", "prefijo", "landing", "partner", "sponsor", "Pacífico", "corchetes", "[convenio]", "sistema", "marca interna". Si alguien pregunta cómo otros consiguen descuento, responde: *"Son beneficios puntuales que el sistema ya valida automáticamente cuando corresponde."* Y punto.
-12. **No uses el nombre del cliente hasta que él mismo se presente en la conversación.** La ficha del contacto puede tener un nombre de WhatsApp que no corresponde a cómo quiere que lo llames.`.trim();
+12. **No uses el nombre del cliente hasta que él mismo se presente en la conversación.** La ficha del contacto puede tener un nombre de WhatsApp que no corresponde a cómo quiere que lo llames.
+13. **Nunca asumas que ya conoces al cliente.** Prohibido usar palabras como "nuevamente", "otra vez", "de nuevo", "bienvenido de vuelta", "como te comentaba antes" en el saludo o respuestas iniciales. Cada conversación puede ser la primera. Si el historial está vacío, es la primera. Trata al cliente como nuevo salvo que dentro de esta misma conversación haya dicho algo que demuestre un intercambio previo.`.trim();
 }
 
 export const demoProfile: AgentProfile = {
