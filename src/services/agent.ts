@@ -13,11 +13,14 @@ export const openrouter = createOpenAI({
 export const AGENT_MODEL = "google/gemini-3.1-flash-lite-preview";
 const MAX_STEPS = 6;
 
-function buildContactContext(contact: Contact | null): string {
+function buildContactContext(
+  contact: Contact | null,
+  hideContactName = false,
+): string {
   if (!contact) return "";
 
   const lines: string[] = ["", "---", "", "## FICHA DEL CONTACTO"];
-  if (contact.name) lines.push(`Nombre: ${contact.name}`);
+  if (contact.name && !hideContactName) lines.push(`Nombre: ${contact.name}`);
   if (contact.empresa) lines.push(`Empresa: ${contact.empresa}`);
   if (contact.cargo) lines.push(`Cargo: ${contact.cargo}`);
   if (contact.ruc) lines.push(`RUC: ${contact.ruc}`);
@@ -55,7 +58,8 @@ export const agent = {
     ];
 
     const systemPrompt =
-      profile.buildSystemPrompt() + buildContactContext(contact);
+      profile.buildSystemPrompt() +
+      buildContactContext(contact, profile.hideContactName);
 
     // Si el profile no tiene tools → conversación pura.
     const tools = profile.createTools

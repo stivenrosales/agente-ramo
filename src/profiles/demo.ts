@@ -239,5 +239,6 @@ export const demoProfile: AgentProfile = {
   name: "Demo — ALTAG DSS 2026 sales bot",
   llmModel: "google/gemini-3.1-flash-lite-preview",
   buildSystemPrompt: buildDemoPrompt,
+  hideContactName: true, // el cliente debe presentarse; no usar el nombre de WhatsApp
   // Sin createTools — conversación pura, solo envía link de pago cuando corresponde.
 };
