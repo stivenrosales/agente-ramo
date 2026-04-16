@@ -7,4 +7,4 @@ import type { ProfileId } from "./types.js";
  *   "ramo" → agente Ramo LATAM (SAP Business One) con tools de agendamiento.
  *   "demo" → agente demostración (solo prompt, sin tools).
  */
-export const ACTIVE_PROFILE: ProfileId = "ramo";
+export const ACTIVE_PROFILE: ProfileId = "demo";
