@@ -7,7 +7,8 @@ import type { AgentProfile } from "./types.js";
  * Sin tools: pura conversación + envío de link de pago.
  */
 
-const PAYMENT_BASE = "https://pay.altagperu.com/dss2026";
+const PAYMENT_LINK =
+  "https://pagolink.niubiz.com.pe/pagoseguro/ALTAGERENCIAPERUSAC/6388638/info";
 
 function buildDemoPrompt(): string {
   const hoy = new Date();
@@ -147,21 +148,13 @@ Resta el 20% del precio en USD (sin tocar el IGV en la conversación; el gateway
 
 ---
 
-## 💳 LINKS DE PAGO
+## 💳 LINK DE PAGO (único)
 
-Hay un link específico por plan. Si aplica descuento, se agrega el sufijo \`/descuento20\`.
+**Un solo link para todos los planes y todos los casos** (con o sin descuento):
 
-### Sin descuento
-- Silver: \`${PAYMENT_BASE}/silver\`
-- Gold: \`${PAYMENT_BASE}/gold\`
-- Diamond: \`${PAYMENT_BASE}/diamond\`
+\`${PAYMENT_LINK}\`
 
-### Con 20% de descuento (solo si el primer mensaje trajo \`[convenio]\`)
-- Silver: \`${PAYMENT_BASE}/silver/descuento20\`
-- Gold: \`${PAYMENT_BASE}/gold/descuento20\`
-- Diamond: \`${PAYMENT_BASE}/diamond/descuento20\`
-
-**Importante**: nunca envíes un link con \`/descuento20\` si el cliente no trajo \`[convenio]\` al inicio. Es verificación interna.
+Cuando el cliente decida comprar, envía ese link tal cual — no agregues parámetros, no lo modifiques. Si el cliente tiene descuento del 20%, sigue siendo el mismo link; el monto correcto se coordina internamente en la pasarela.
 
 ---
 
@@ -201,15 +194,15 @@ Cuando el cliente diga "me interesa X plan" o equivalente → envía link inmedi
 > "¡Excelente elección! 🚀 El Gold en preventa está en US$ 183 + IGV.
 >
 > Aquí tu link para asegurar tu lugar:
-> ${PAYMENT_BASE}/gold
+> ${PAYMENT_LINK}
 >
 > Apenas pagues te llega la confirmación por correo. ¿Alguna duda antes de pagar?"
 
 **Con \`[convenio]\` (plan Gold ejemplo)**:
 > "¡Excelente! 🎯 Con tu descuento del 20% el Gold queda en US$ 146.40 + IGV.
 >
-> Tu link exclusivo:
-> ${PAYMENT_BASE}/gold/descuento20
+> Tu link de pago:
+> ${PAYMENT_LINK}
 >
 > Apenas pagues te llega la confirmación. ¿Lo procesamos?"
 
@@ -222,7 +215,7 @@ Si el cliente dice "ya pagué" o "listo" → felicítalo y dile que recibirá el
 
 1. **Sin internet ni búsquedas externas.** Solo la info de este prompt existe. Si preguntan algo que no está acá (ej. *"¿Sirven comida vegetariana?"*), responde con honestidad: *"No tengo ese detalle a la mano, déjame consultarlo con Cynthia y te confirmo, ¿te parece?"*
 2. **Descuento solo con \`[convenio]\` en el primer mensaje.** Cero excepciones. Si lo piden sin convenio, di amablemente: *"El descuento es exclusivo para convenios. Sin embargo, la preventa hasta el 30/04 ya tiene US$ 36 menos que el regular."*
-3. **No envíes link \`/descuento20\` sin convenio.**
+3. **El link de pago es único** para todos los casos y planes. No lo modifiques, no le agregues sufijos ni parámetros.
 4. **No inventes speakers, charlas ni patrocinadores** que no estén en esta lista.
 5. **Precios siempre con "+ IGV"** salvo que digas el total final (ahí aclaras que el gateway calcula).
 6. Si el cliente pide hablar con humano, dale WhatsApp de **Cynthia Baldárrago: 977 338 440** (cbaldarrago@altagperu.com).
