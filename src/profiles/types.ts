@@ -11,7 +11,10 @@ export interface AgentProfile {
   id: ProfileId;
   name: string;
   llmModel: string;
-  buildSystemPrompt: () => string;
+  buildSystemPrompt: (ctx?: {
+    /** Mensaje actual del usuario + historial disponible al momento de construir el prompt. */
+    hasConvenio?: boolean;
+  }) => string;
   /** Opcional. Si el perfil no expone tools, el runtime llama al LLM en modo conversación pura. */
   createTools?: (ctx: ProfileContext) => Record<string, Tool>;
   /**

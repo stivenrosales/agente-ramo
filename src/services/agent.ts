@@ -57,8 +57,14 @@ export const agent = {
       { role: "user" as const, content: userMessage },
     ];
 
+    // Detección estricta de [convenio] en cualquier mensaje del usuario de esta conversación.
+    // Si nunca apareció, el prompt del perfil no debe exponer la lógica de descuento.
+    const hasConvenio = [...history, { role: "user", content: userMessage }]
+      .filter((m) => m.role === "user")
+      .some((m) => /^\s*\[convenio\]/i.test(m.content));
+
     const systemPrompt =
-      profile.buildSystemPrompt() +
+      profile.buildSystemPrompt({ hasConvenio }) +
       buildContactContext(contact, profile.hideContactName);
 
     // Si el profile no tiene tools → conversación pura.
