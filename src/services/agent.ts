@@ -1,8 +1,7 @@
 import { generateText } from "ai";
 import { createOpenAI } from "@ai-sdk/openai";
 import { config } from "../config.js";
-import { buildSystemPrompt } from "./system-prompt.js";
-import { createTools } from "./tools.js";
+import { getActiveProfile } from "../profiles/index.js";
 import type { ChatMessage, Contact } from "../types.js";
 
 export const openrouter = createOpenAI({
@@ -10,8 +9,8 @@ export const openrouter = createOpenAI({
   apiKey: config.openrouterApiKey,
 });
 
+// Modelo por defecto si el profile no declara uno explícito (no debería pasar).
 export const AGENT_MODEL = "google/gemini-3.1-flash-lite-preview";
-const MODEL = AGENT_MODEL;
 const MAX_STEPS = 6;
 
 function buildContactContext(contact: Contact | null): string {
@@ -32,7 +31,7 @@ function buildContactContext(contact: Contact | null): string {
 
   lines.push(
     "",
-    "**IMPORTANTE**: este cliente ya te habló antes. NO vuelvas a pedir datos que ya están en la ficha. Salúdalo por su nombre.",
+    "**IMPORTANTE**: este cliente ya te habló antes. NO vuelvas a pedir datos que ya están en la ficha. Saludalo por su nombre.",
   );
   return lines.join("\n");
 }
@@ -45,6 +44,8 @@ export const agent = {
     conversationId: number | string,
     contact: Contact | null = null,
   ): Promise<string> {
+    const profile = getActiveProfile();
+
     const messages = [
       ...history.map((m) => ({
         role: m.role as "user" | "assistant",
@@ -53,15 +54,20 @@ export const agent = {
       { role: "user" as const, content: userMessage },
     ];
 
-    const systemPrompt = buildSystemPrompt() + buildContactContext(contact);
-    const tools = createTools(contactKey, conversationId);
+    const systemPrompt =
+      profile.buildSystemPrompt() + buildContactContext(contact);
+
+    // Si el profile no tiene tools → conversación pura.
+    const tools = profile.createTools
+      ? profile.createTools({ contactKey, conversationId })
+      : undefined;
 
     const { text } = await generateText({
-      model: openrouter(MODEL),
+      model: openrouter(profile.llmModel),
       system: systemPrompt,
       messages,
       tools,
-      maxSteps: MAX_STEPS,
+      maxSteps: tools ? MAX_STEPS : 1,
     });
 
     return text;
