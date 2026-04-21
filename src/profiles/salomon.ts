@@ -11,7 +11,33 @@ function formatPrice(min: number, max: number): string {
 
 function buildCaption(title: string, priceMin: number, priceMax: number): string {
   // Caption FIJO del tool. Garantiza título y precio correctos, sin alucinación del LLM.
-  return `Esta es la que mejor encaja con lo que buscas:\n\n*${title}*\n${formatPrice(priceMin, priceMax)}`;
+  return `*${title}*\n${formatPrice(priceMin, priceMax)}`;
+}
+
+// ─── Cache in-memory de productos mostrados por contacto ────────────────
+// Evita repetir el mismo modelo cuando el LLM no pasa excluir_handles.
+// TTL: 30 min por contact_key. Se limpia al hacer un rebuild del container.
+const SHOWN_TTL_MS = 30 * 60 * 1000;
+const shownByContact = new Map<string, { handles: Set<string>; expiresAt: number }>();
+
+function getShownHandles(contactKey: string): Set<string> {
+  const entry = shownByContact.get(contactKey);
+  if (!entry || entry.expiresAt < Date.now()) {
+    shownByContact.delete(contactKey);
+    return new Set();
+  }
+  return entry.handles;
+}
+
+function markShown(contactKey: string, handle: string): void {
+  const entry = shownByContact.get(contactKey);
+  const expiresAt = Date.now() + SHOWN_TTL_MS;
+  if (entry && entry.expiresAt >= Date.now()) {
+    entry.handles.add(handle);
+    entry.expiresAt = expiresAt;
+  } else {
+    shownByContact.set(contactKey, { handles: new Set([handle]), expiresAt });
+  }
 }
 
 function buildSystemPrompt(): string {
@@ -74,7 +100,7 @@ Tú (texto): *"¡Perfecto! Aquí la compras directo:\\nhttps://www.salomonstore.
 Zona horaria Lima (GMT-5). Todo en soles peruanos (S/).`;
 }
 
-function createTools(ctx: { conversationId: number | string }) {
+function createTools(ctx: { contactKey: string; conversationId: number | string }) {
   return {
     buscar_catalogo: tool({
       description:
@@ -107,12 +133,18 @@ function createTools(ctx: { conversationId: number | string }) {
           .describe("Handles de productos ya rechazados por el cliente en esta conversación."),
       }),
       execute: async ({ query, genero, tipo, precio_max, excluir_handles }) => {
+        // Doble barrera: handles excluidos = los que pasa el LLM + los que ya enviamos en esta sesión.
+        const alreadyShown = getShownHandles(ctx.contactKey);
+        const combinedExcluded = [
+          ...new Set([...(excluir_handles ?? []), ...alreadyShown]),
+        ];
+
         const results = searchCatalog({
           query,
           genero: genero ?? null,
           tipo: tipo ?? null,
           precio_max: precio_max ?? null,
-          excluir_handles: excluir_handles ?? [],
+          excluir_handles: combinedExcluded,
           limit: 3,
         });
 
@@ -126,6 +158,9 @@ function createTools(ctx: { conversationId: number | string }) {
 
         const mejor = results[0].product;
         const alternativas = results.slice(1);
+
+        // Registra el handle para que futuras búsquedas en esta sesión no lo repitan.
+        markShown(ctx.contactKey, mejor.handle);
 
         // Side-effect: enviamos la imagen de la #1 al cliente con caption fijo.
         if (mejor.image) {
