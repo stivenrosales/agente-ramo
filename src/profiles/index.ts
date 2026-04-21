@@ -1,11 +1,13 @@
 import { ACTIVE_PROFILE } from "./active.js";
 import { ramoProfile } from "./ramo.js";
 import { demoProfile } from "./demo.js";
+import { salomonProfile } from "./salomon.js";
 import type { AgentProfile, ProfileId } from "./types.js";
 
 const registry: Record<ProfileId, AgentProfile> = {
   ramo: ramoProfile,
   demo: demoProfile,
+  salomon: salomonProfile,
 };
 
 export function getActiveProfile(): AgentProfile {
