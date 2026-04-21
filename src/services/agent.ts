@@ -64,7 +64,7 @@ export const agent = {
       .some((m) => /^\s*\[convenio\]/i.test(m.content));
 
     const systemPrompt =
-      profile.buildSystemPrompt({ hasConvenio }) +
+      profile.buildSystemPrompt({ hasConvenio, contactKey }) +
       buildContactContext(contact, profile.hideContactName);
 
     // Si el profile no tiene tools → conversación pura.

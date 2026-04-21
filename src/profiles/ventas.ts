@@ -30,35 +30,90 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-// ─── Cache in-memory separado por marca × contacto ──────────────────────
-// Clave: `${brand}:${contactKey}`. Así rechazar una Salomon no afecta a Wilson.
+// ─── Cache in-memory: productos mostrados por contacto ─────────────────
+// Guarda info enriquecida (no solo handles) para que el prompt pueda
+// inyectar las URLs al LLM — evita que el LLM invente placeholders
+// tipo "[Link aquí]" cuando el cliente confirma sin llamar la tool.
+// TTL: 30 min. Se limpia en restart del container.
 const SHOWN_TTL_MS = 30 * 60 * 1000;
-const shownByKey = new Map<string, { handles: Set<string>; expiresAt: number }>();
+const MAX_SHOWN_PER_CONTACT = 9; // 3 rondas de carrusel max
 
-function shownKey(brand: string, contactKey: string): string {
-  return `${brand}:${contactKey}`;
+interface ShownProduct {
+  brand: "salomon" | "wilson";
+  handle: string;
+  title: string;
+  url: string;
+  price_min: number;
+  shown_at: number;
 }
 
-function getShownHandles(brand: string, contactKey: string): Set<string> {
-  const k = shownKey(brand, contactKey);
-  const entry = shownByKey.get(k);
+// Un solo Map por contacto (cross-brand). El handle + brand evita colisiones.
+const shownByContact = new Map<
+  string,
+  { products: ShownProduct[]; expiresAt: number }
+>();
+
+function getShownProducts(contactKey: string): ShownProduct[] {
+  const entry = shownByContact.get(contactKey);
   if (!entry || entry.expiresAt < Date.now()) {
-    shownByKey.delete(k);
-    return new Set();
+    shownByContact.delete(contactKey);
+    return [];
   }
-  return entry.handles;
+  return entry.products;
 }
 
-function markShown(brand: string, contactKey: string, handle: string): void {
-  const k = shownKey(brand, contactKey);
-  const entry = shownByKey.get(k);
-  const expiresAt = Date.now() + SHOWN_TTL_MS;
-  if (entry && entry.expiresAt >= Date.now()) {
-    entry.handles.add(handle);
+function getShownHandles(brand: "salomon" | "wilson", contactKey: string): Set<string> {
+  return new Set(
+    getShownProducts(contactKey)
+      .filter((p) => p.brand === brand)
+      .map((p) => p.handle),
+  );
+}
+
+function markShown(
+  brand: "salomon" | "wilson",
+  contactKey: string,
+  product: { handle: string; title: string; url: string; price_min: number },
+): void {
+  const now = Date.now();
+  const entry = shownByContact.get(contactKey);
+  const expiresAt = now + SHOWN_TTL_MS;
+  const newItem: ShownProduct = { brand, ...product, shown_at: now };
+
+  if (entry && entry.expiresAt >= now) {
+    // Evita duplicados si el mismo producto se envía dos veces
+    const withoutDup = entry.products.filter(
+      (p) => !(p.brand === brand && p.handle === product.handle),
+    );
+    withoutDup.push(newItem);
+    entry.products = withoutDup.slice(-MAX_SHOWN_PER_CONTACT);
     entry.expiresAt = expiresAt;
   } else {
-    shownByKey.set(k, { handles: new Set([handle]), expiresAt });
+    shownByContact.set(contactKey, { products: [newItem], expiresAt });
   }
+}
+
+/** Construye la sección del prompt con productos mostrados recientemente. */
+function buildRecentShownSection(contactKey: string): string {
+  const products = getShownProducts(contactKey);
+  if (products.length === 0) return "";
+
+  // Ordenados por shown_at descendente (el más reciente primero)
+  const sorted = [...products].sort((a, b) => b.shown_at - a.shown_at);
+  const lines = sorted.map(
+    (p, i) =>
+      `${i + 1}. **${p.title}** (${p.brand === "salomon" ? "Salomon" : "Wilson"}) → ${p.url}`,
+  );
+
+  return (
+    "\n\n═══════════════════════════════════════════════════════════\n" +
+    "## 🔖 PRODUCTOS YA MOSTRADOS A ESTE CLIENTE EN ESTA CONVERSACIÓN\n\n" +
+    lines.join("\n") +
+    "\n\n**USO**: si el cliente confirma con 'sí', 'esa', 'me gusta', 'la 2', " +
+    "o menciona un modelo de la lista → copia el link EXACTAMENTE como aparece arriba. " +
+    "NUNCA inventes placeholders tipo [Link] ni URLs que no estén en esta lista. " +
+    "Si el cliente pide algo distinto a los de arriba, llama la tool apropiada."
+  );
 }
 
 // ─── Factory de tool por marca ──────────────────────────────────────────
@@ -143,7 +198,14 @@ function createBrandSearchTool(
       }
 
       const productosEnviados = results.slice(0, modo === "carrusel" ? 3 : 1);
-      for (const r of productosEnviados) markShown(brandCfg.brand, ctx.contactKey, r.product.handle);
+      for (const r of productosEnviados) {
+        markShown(brandCfg.brand, ctx.contactKey, {
+          handle: r.product.handle,
+          title: r.product.title,
+          url: r.product.url,
+          price_min: r.product.price_min,
+        });
+      }
 
       (async () => {
         for (let i = 0; i < productosEnviados.length; i++) {
@@ -205,7 +267,7 @@ function createBrandSearchTool(
 }
 
 // ─── Prompt multi-marca ──────────────────────────────────────────────────
-function buildSystemPrompt(): string {
+function buildSystemPrompt(ctx?: { contactKey?: string }): string {
   const salomonMeta = (() => {
     try { return salomonCatalog.getCatalogMeta(); }
     catch { return { count: 0, generated_at: "", brand: "Salomon" }; }
@@ -282,6 +344,7 @@ Cuando el intent es amplio, pregunta UNA cosa abierta sobre el uso:
 ═══════════════════════════════════════════════════════════
 ## REGLAS FIRMES
 - **NUNCA inventes productos, precios, tallas.** Todo sale de la tool.
+- **NUNCA inventes URLs ni uses placeholders.** PROHIBIDO escribir \`[Link]\`, \`[Link aquí]\`, \`{url}\`, \`https://...\` genérico, "ingresa al link" sin URL, o cualquier variante. SOLO usas URLs que están literalmente en la sección "PRODUCTOS YA MOSTRADOS" al final del prompt, o en la respuesta de una tool que acabas de llamar. Si no tienes la URL disponible, **NO inventes** — di al cliente "Dame un segundito" y llama la tool apropiada para obtenerla.
 - **NUNCA repitas el precio en texto** — el cliente ya lo ve en la imagen.
 - **NO prometas envío gratis, tiempos, descuentos, promos, cambios.** → *"Eso lo verifica la tienda cuando hagas el pedido en el link."*
 - **No hables de stock por talla específica.** Lo que aparece existe.
@@ -338,7 +401,7 @@ Tú: *"Sí la tengo. Esa es una de las favoritas para jugadores con golpe plano.
 - Cliente pregunta por pedido ya hecho / cambio / garantía → **no inventes**: *"Para consultas de pedidos ya hechos, el equipo de la tienda te responde por aquí mismo en breve."*
 - Cliente pregunta por marca que NO manejas (Nike, adidas, Head, Babolat…) → sé honesto: *"Esas no las manejamos. Nosotros tenemos Salomon para outdoor y Wilson para deportes de raqueta. ¿Te interesa algo de esas?"*
 
-Zona horaria Lima (GMT-5). Todo en soles peruanos (S/).`;
+Zona horaria Lima (GMT-5). Todo en soles peruanos (S/).${ctx?.contactKey ? buildRecentShownSection(ctx.contactKey) : ""}`;
 }
 
 // ─── Tools factory ───────────────────────────────────────────────────────

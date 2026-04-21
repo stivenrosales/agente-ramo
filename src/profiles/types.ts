@@ -14,6 +14,8 @@ export interface AgentProfile {
   buildSystemPrompt: (ctx?: {
     /** Mensaje actual del usuario + historial disponible al momento de construir el prompt. */
     hasConvenio?: boolean;
+    /** contact_key estable del cliente. Permite al profile consultar su estado in-memory. */
+    contactKey?: string;
   }) => string;
   /** Opcional. Si el perfil no expone tools, el runtime llama al LLM en modo conversación pura. */
   createTools?: (ctx: ProfileContext) => Record<string, Tool>;
