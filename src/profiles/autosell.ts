@@ -174,6 +174,9 @@ function createBuscarAutosellTool(ctx: {
       km_max,
       excluir_handles,
     }) => {
+      console.log(
+        `[autosell] TOOL CALLED query="${query}" modo=${modo} carroceria=${carroceria ?? "-"} precio_max=${precio_max ?? "-"} anio_min=${anio_min ?? "-"} km_max=${km_max ?? "-"}`,
+      );
       const alreadyShown = getShownHandles(ctx.contactKey);
       const combinedExcluded = [
         ...new Set([...(excluir_handles ?? []), ...alreadyShown]),
@@ -209,10 +212,16 @@ function createBuscarAutosellTool(ctx: {
         });
       }
 
+      console.log(
+        `[autosell] tool got ${enviados.length} resultados — iniciando envío de imágenes`,
+      );
       (async () => {
         for (let i = 0; i < enviados.length; i++) {
           const p = enviados[i].product;
-          if (!p.image) continue;
+          if (!p.image) {
+            console.warn(`[autosell] producto ${p.handle} sin imagen, skip`);
+            continue;
+          }
           const summary: AutoSummary = {
             title: p.title,
             price: p.price_min,
@@ -226,7 +235,9 @@ function createBuscarAutosellTool(ctx: {
               ? buildCarouselCaption(i as 0 | 1 | 2, summary)
               : buildCaption(summary);
           try {
+            console.log(`[autosell] enviando foto ${i + 1}/${enviados.length}: ${p.handle} <- ${p.image}`);
             await chatwoot.sendMessageWithImage(ctx.conversationId, caption, p.image);
+            console.log(`[autosell] foto ${p.handle} enviada OK`);
           } catch (err) {
             console.error("[autosell] fallo envío imagen", p.handle, err);
           }
