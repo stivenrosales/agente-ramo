@@ -7,7 +7,10 @@ import { resolve } from "node:path";
 // este HTML SSR es la fuente publica mas limpia. ~137 autos disponibles.
 const LISTING_URL = "https://www.autosell.pe/compra-tu-auto";
 const SITE = "https://www.autosell.pe";
-const IMG_CDN = "https://autosell-imagenes.sfo3.cdn.digitaloceanspaces.com/autos";
+// NOTA: el CDN de Digital Ocean sirve .webp. WhatsApp NO acepta webp como foto
+// (solo admite JPG/PNG — webp es solo para stickers). El endpoint oficial de
+// Autosell `api/v1/og-image/{id}.jpg` devuelve JPG, compatible con WhatsApp.
+const IMG_OG = "https://api.autosell.pe/api/v1/og-image";
 const OUTPUT = resolve(process.cwd(), "data", "autosell-catalog.json");
 
 interface RawAuto {
@@ -122,7 +125,7 @@ function normalize(a: RawAuto): CatalogProduct | null {
     tags: buildTags(a),
     price_min: a.precioCompra,
     price_max: a.precioCompra,
-    image: `${IMG_CDN}/${a.idAuto}/${a.fotoPrincipal}`,
+    image: `${IMG_OG}/${a.idAuto}.jpg`,
     colors: a.color ? [a.color] : [],
     sizes_available: [],
     any_in_stock: true,
