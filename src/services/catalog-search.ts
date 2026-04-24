@@ -18,6 +18,17 @@ export interface CatalogProduct {
   sizes_available: string[];
   any_in_stock: boolean;
   description: string;
+  // Campos opcionales específicos del dominio automotriz (perfil autosell).
+  // Las tiendas de ropa los dejan undefined.
+  marca?: string;
+  anio?: number;
+  km?: number;
+  transmision?: string;
+  combustible?: string;
+  carroceria?: string;
+  traccion?: string;
+  cilindrada?: number;
+  servicios?: string;
 }
 
 export interface Catalog {
@@ -32,6 +43,9 @@ export interface SearchArgs {
   genero?: "hombre" | "mujer" | "unisex" | null;
   tipo?: string | null;
   precio_max?: number | null;
+  /** Filtros hard específicos de autos. Sin efecto si el catálogo no los define. */
+  anio_min?: number | null;
+  km_max?: number | null;
   excluir_handles?: string[];
   limit?: number;
 }
@@ -264,6 +278,16 @@ export function createCatalogSearch(config: CatalogConfig) {
           efectivePrecioMax === null
             ? true
             : r.item.price_min <= efectivePrecioMax,
+        )
+        .filter((r) =>
+          args.anio_min == null || r.item.anio == null
+            ? true
+            : r.item.anio >= args.anio_min,
+        )
+        .filter((r) =>
+          args.km_max == null || r.item.km == null
+            ? true
+            : r.item.km <= args.km_max,
         )
         .map((r) => ({ item: r.item, score: r.score ?? 1 })),
       intent,

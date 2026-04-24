@@ -31,6 +31,47 @@ export const salomonCatalog = createCatalogSearch({
   ],
 });
 
+// ─── Autosell (autos seminuevos de lujo, Lima) ────────────────────────
+// `type` del CatalogProduct mapea 1:1 a la carroceria (SUV, Sedán, Hatchback…).
+// Las marcas canónicas se indexan como tokens dentro de tags+description para
+// que Fuse las encuentre; los typeHints permiten rutear por carroceria cuando
+// el cliente usa vocablos coloquiales peruanos ("camioneta" → SUV/Pick up).
+export const autosellCatalog = createCatalogSearch({
+  catalogPath: "data/autosell-catalog.json",
+  brandLabel: "Autosell",
+  generoBoost: "debil", // irrelevante: autos no tienen género; el boost nunca dispara.
+  synonyms: {
+    suv: ["camioneta", "4x4", "todoterreno"],
+    sedan: ["auto", "sedán"],
+    hatchback: ["compacto", "citycar"],
+    pickup: ["pick", "pick-up", "camioneta de carga", "tolva"],
+    coupe: ["coupé", "deportivo"],
+    convertible: ["descapotable", "cabrio", "cabriolet"],
+    automatico: ["automatica", "at", "tiptronic", "dsg"],
+    manual: ["mecanico", "mecanica", "mt"],
+    gasolina: ["bencina", "nafta"],
+    diesel: ["diésel", "petrolero"],
+    hibrido: ["híbrido", "hybrid"],
+    electrico: ["eléctrico", "ev"],
+    "mercedes benz": ["mercedes", "merce", "benz"],
+    volkswagen: ["vw", "wolks", "volks"],
+    toyota: ["toyo"],
+    chevrolet: ["chevy"],
+    // Marcas no-redundantes se auto-reconocen: Audi, BMW, Porsche, Volvo, etc.
+  },
+  typeHints: [
+    // Orden importa: específico antes que general.
+    { pattern: /\bpick\s*up\b|\btolva\b|\bpickup\b/, hint: "Pick up" },
+    { pattern: /\bcoupe\b|\bcoupé\b|\bdeportivo\b/, hint: "Coupé" },
+    { pattern: /\bconvertible\b|\bdescapotable\b|\bcabrio\b/, hint: "Convertible" },
+    { pattern: /\bhatchback\b|\bcompacto\b|\bcitycar\b/, hint: "Hatchback" },
+    { pattern: /\bsedan\b|\bsedán\b/, hint: "Sedán" },
+    { pattern: /\bvan\b|\bminivan\b/, hint: "Van" },
+    { pattern: /\bmoto\b|\bmotocicleta\b/, hint: "Motocicleta" },
+    { pattern: /\bsuv\b|\bcamioneta\b|\b4x4\b|\btodoterreno\b/, hint: "SUV" },
+  ],
+});
+
 // ─── Wilson (tenis, padel, basquet, volley, fitness) ──────────────────
 // Vocabulario basado en el catálogo real: Wilson usa "paleta" (no "pala"),
 // "raqueta" para tenis, "overgrip"/"reel"/"clay" en inglés técnico.

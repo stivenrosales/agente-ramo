@@ -19,8 +19,15 @@ function buildContactContext(
 ): string {
   if (!contact) return "";
 
+  // Perfiles retail (hideContactName=true) tratan cada conversación como fresca:
+  // no exponen nombre ni instrucción de "ya te habló antes" al LLM.
+  // Esto evita saludos tipo "¡Qué tal de nuevo!" cuando el cliente simplemente
+  // reabre el chat — el teléfono/email siempre se guardan al entrar el webhook,
+  // así que ese bloque antes disparaba incluso en la primera visita.
+  if (hideContactName) return "";
+
   const lines: string[] = ["", "---", "", "## FICHA DEL CONTACTO"];
-  if (contact.name && !hideContactName) lines.push(`Nombre: ${contact.name}`);
+  if (contact.name) lines.push(`Nombre: ${contact.name}`);
   if (contact.empresa) lines.push(`Empresa: ${contact.empresa}`);
   if (contact.cargo) lines.push(`Cargo: ${contact.cargo}`);
   if (contact.ruc) lines.push(`RUC: ${contact.ruc}`);

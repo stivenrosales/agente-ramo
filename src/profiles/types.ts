@@ -1,6 +1,6 @@
 import type { Tool } from "ai";
 
-export type ProfileId = "ramo" | "demo" | "ventas";
+export type ProfileId = "ramo" | "demo" | "ventas" | "autosell";
 
 export interface ProfileContext {
   contactKey: string;
